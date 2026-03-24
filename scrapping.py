@@ -47,7 +47,7 @@ for page in range(1, NB_PAGES + 1):
 # enlever doublons
 all_links = list(set(all_links))
 
-print(f"✅ {len(all_links)} liens récupérés")
+print(f"i{len(all_links)} liens récupérés")
 
 
 # ETAPE 2 : DETAILS
@@ -110,4 +110,4 @@ driver.quit()
 df = pd.DataFrame(data)
 df.to_csv("camions_mascus.csv", index=False)
 
-print("✅ Scraping terminé 🚀")
+print(" Scraping terminé ")
