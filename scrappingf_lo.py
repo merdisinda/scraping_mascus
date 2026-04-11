@@ -115,5 +115,5 @@ df = df.drop(columns=['info'])
 
 print(df.head(10))
 
-nom_fichier_nettoye = "camions_mascus_nettoye_test.csv"
+nom_fichier_nettoye = "camions_mascus_nettoye.csv"
 df.to_csv(nom_fichier_nettoye, index=False, encoding="utf-8-sig")
