@@ -1,99 +1,113 @@
-# Scraping d'une page de Mascus pour tester
-
-import time
-import csv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+import time
+import random
+import pandas as pd
 
-#Paramètres
-adresse_site = "https://www.mascus.com/transportation/trucks"
+# FONCTION PAUSE
+def human_sleep(min_sec=2, max_sec=5):
+    time.sleep(random.uniform(min_sec, max_sec))
 
-#Lancement du navigateur
-parametres = Options()
-parametres.add_argument("--window-size=1920,1080")
-navigateur = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=parametres)
 
-navigateur.get(adresse_site)
-WebDriverWait(navigateur, 15).until(
-    EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='SearchResult']"))
-)
-time.sleep(2)
-navigateur.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-time.sleep(2)
+# CONFIG
+NB_PAGES = 358
+BASE_URL = "https://www.mascus.com/transportation/trucks?page={}"
 
-#Récupération des annonces
-annonces = navigateur.find_elements(By.CSS_SELECTOR, "[class*='SearchResult_detailWrapper']")
-print(f"{len(annonces)} annonces trouvées\n")
+driver = webdriver.Chrome()
 
-liste_donnees = []
+all_links = []
 
-for annonce in annonces:
-    try:
-        # Titre + lien
-        lien_element = annonce.find_element(By.CSS_SELECTOR, "a[href*='/transportation/']")
-        adresse_lien = lien_element.get_attribute("href")
-        lien_complet = adresse_lien if adresse_lien.startswith("http") else "https://www.mascus.com" + adresse_lien
+
+# ETAPE 1 : LIENS
+#print("🔎 Récupération des liens...")
+
+for page in range(1, NB_PAGES + 1):
+    #print(f"Page {page}/{NB_PAGES}")
+    
+    driver.get(BASE_URL.format(page))
+    human_sleep(4, 7)  #  pause plus longue pour chargement
+
+    trucks = driver.find_elements(By.CSS_SELECTOR, "div[class*='SearchResult_searchResultItemWrapper']")
+
+    for truck in trucks:
         try:
-            titre = lien_element.find_element(By.CSS_SELECTOR, "h3").text.strip()
-        except:
-            titre = lien_element.text.strip()
-
-        # Détails : type • année • kilométrage • ville  (ex: "Curtain Side • 2011 • 251034mil • Paris")
-        details = []
-        try:
-            paragraphe = annonce.find_element(By.CSS_SELECTOR, "p[class*='basicText']")
-            texte_brut = navigateur.execute_script(
-                "return Array.from(arguments[0].childNodes)"
-                ".filter(n => n.nodeType === 3)"
-                ".map(n => n.textContent).join('').trim();", paragraphe
-            ).strip().strip('"')
-            details = [x.strip() for x in texte_brut.split("•") if x.strip()]
+            link = truck.find_element(By.CSS_SELECTOR, "a[href*='/transportation/']").get_attribute("href")
+            if link:
+                all_links.append(link)
         except:
             pass
 
-        # Prix
-        prix = None
-        try:
-            prix = annonce.find_element(By.CSS_SELECTOR, "[class*='priceWrapper'] [role='button']").text.strip()
-        except:
+    # petite pause entre pages
+    human_sleep(2, 4)
+
+    # sauvegarde
+    if page % 20 == 0:
+        pd.DataFrame(all_links, columns=["link"]).to_csv("backup_links.csv", index=False)
+
+# enlever doublons
+all_links = list(set(all_links))
+
+print(f"i{len(all_links)} liens récupérés")
+
+
+# ETAPE 2 : DETAILS
+data = []
+
+for i, link in enumerate(all_links):
+    #print(f"{i+1}/{len(all_links)}")
+
+    driver.get(link)
+    human_sleep(3, 6)
+
+    try:
+        info = {}
+        items = driver.find_elements(By.CSS_SELECTOR, "div.key-value-wrapper")
+
+        for item in items:
             try:
-                prix = annonce.find_element(By.XPATH, ".//*[contains(text(),'USD') or contains(text(),'EUR')]").text.strip()
+                label = item.find_element(By.CLASS_NAME, "key-value-label").text.strip()
+                value = item.find_element(By.CLASS_NAME, "key-value-value").text.strip()
+                info[label] = value
             except:
                 pass
 
-        liste_donnees.append({
-            "titre":        titre,
-            "lien":         lien_complet,
-            "categorie":    details[0] if len(details) > 0 else None,
-            "annee":        details[1] if len(details) > 1 else None,
-            "kilometrage":  details[2] if len(details) > 2 else None,
-            "ville":        details[3] if len(details) > 3 else None,
-            "prix":         prix,
+        # titre
+        try:
+            title = driver.find_element(By.TAG_NAME, "h1").text
+        except:
+            title = None
+
+        # prix
+        try:
+            price = driver.find_element(By.CSS_SELECTOR, "div.heading5").text
+        except:
+            price = None
+
+        data.append({
+            "titre": title,
+            "prix": price,
+            "annee": info.get("Year"),
+            "km": info.get("Meter read-out"),
+            "pays": info.get("Country"),
+            "type": info.get("Category"),
+            "modele": info.get("Brand / model"),
+            "lien": link
         })
 
-    except Exception as erreur:
-        print(f"Erreur sur une annonce : {erreur}")
+    except Exception as e:
+        print("Erreur :", e)
 
-navigateur.quit()
+    # pause entre chaque camion
+    human_sleep(2, 5)
 
-#Affichage 
-for ligne in liste_donnees:
-    print(ligne)
-print(f"\n{len(liste_donnees)} annonces extraites")
+    # sauvegarde
+    if i % 50 == 0:
+        pd.DataFrame(data).to_csv("backup_links.csv", index=False)
 
-#Export CSV 
-with open("mascus.csv", "w", newline="", encoding="utf-8-sig") as fichier:
-    colonnes = ["titre", "lien", "categorie", "annee", "kilometrage", "ville", "prix"]
-    ecrivain = csv.DictWriter(fichier, fieldnames=colonnes)
-    ecrivain.writeheader()
-    ecrivain.writerows(liste_donnees)
+driver.quit()
 
-import pandas as pd
+# EXPORT FINAL
+df = pd.DataFrame(data)
+df.to_csv("camions_mascus.csv", index=False)
 
-df = pd.read_csv("mascus.csv")
-df
+print(" Scraping terminé ")
